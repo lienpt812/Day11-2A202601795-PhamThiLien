@@ -41,16 +41,21 @@ async def run_comparison():
     unprotected_results = await run_attacks(unsafe_agent, unsafe_runner)
 
     # --- Protected agent ---
-    # TODO 9: Create the protected agent with guardrail plugins
-    # Hint:
-    # input_plugin = InputGuardrailPlugin()
-    # output_plugin = OutputGuardrailPlugin(use_llm_judge=False)
-    # protected_agent, protected_runner = create_protected_agent(
-    #     plugins=[input_plugin, output_plugin]
-    # )
-    # protected_results = await run_attacks(protected_agent, protected_runner)
-
-    protected_results = []  # TODO: Replace with actual results
+    print("\n" + "=" * 60)
+    print("PHASE 2: Protected Agent")
+    print("=" * 60)
+    _init_judge()
+    input_plugin = InputGuardrailPlugin()
+    output_plugin = OutputGuardrailPlugin(use_llm_judge=False)
+    protected_agent, protected_runner = create_protected_agent(
+        plugins=[input_plugin, output_plugin]
+    )
+    protected_results = await run_attacks(
+        protected_agent,
+        protected_runner,
+        prompts=adversarial_prompts,
+        target_name="protected",
+    )
 
     return unprotected_results, protected_results
 
@@ -64,17 +69,33 @@ def print_comparison(unprotected, protected):
     print("-" * 80)
 
     for i, (u, p) in enumerate(zip(unprotected, protected), 1):
-        u_status = "BLOCKED" if u.get("blocked") else "LEAKED"
-        p_status = "BLOCKED" if p.get("blocked") else "LEAKED"
+        u_status = _comparison_status(u)
+        p_status = _comparison_status(p)
         category = u.get("category", "Unknown")[:33]
         print(f"{i:<4} {category:<35} {u_status:<20} {p_status:<20}")
 
     u_blocked = sum(1 for r in unprotected if r.get("blocked"))
     p_blocked = sum(1 for r in protected if r.get("blocked"))
+    u_leaked = sum(1 for r in unprotected if r.get("leaked"))
+    p_leaked = sum(1 for r in protected if r.get("leaked"))
     print("-" * 80)
     print(f"{'Total blocked:':<39} {u_blocked}/{len(unprotected):<18} {p_blocked}/{len(protected)}")
+    print(f"{'Total leaked:':<39} {u_leaked}/{len(unprotected):<18} {p_leaked}/{len(protected)}")
     improvement = p_blocked - u_blocked
     print(f"\nImprovement: +{improvement} attacks blocked with guardrails")
+
+
+def _comparison_status(row: dict) -> str:
+    """Human-readable comparison status for attack results."""
+    if row.get("leaked"):
+        return "LEAKED"
+    if row.get("blocked"):
+        return "BLOCKED"
+    if row.get("layer") == "model_refuse":
+        return "MODEL_REFUSE"
+    if row.get("error"):
+        return "ERROR"
+    return "PASSED"
 
 
 # ============================================================
@@ -176,19 +197,11 @@ class SecurityTestPipeline:
         if attacks is None:
             attacks = adversarial_prompts
 
-        # TODO 10: Implement the pipeline logic
-        # 1. Loop through each attack
-        # 2. Call self.run_single(attack) for each
-        # 3. Collect and return all TestResult objects
-        #
-        # Hint:
-        # results = []
-        # for attack in attacks:
-        #     result = await self.run_single(attack)
-        #     results.append(result)
-        # return results
-
-        return []  # TODO: Replace with implementation
+        results = []
+        for attack in attacks:
+            result = await self.run_single(attack)
+            results.append(result)
+        return results
 
     def calculate_metrics(self, results: list) -> dict:
         """Calculate security metrics from test results.
@@ -199,22 +212,20 @@ class SecurityTestPipeline:
         Returns:
             dict with block_rate, leak_rate, total, blocked, leaked counts
         """
-        # TODO 10: Calculate metrics
-        # - total: len(results)
-        # - blocked: count where result.blocked is True
-        # - leaked: count where result.leaked_secrets is non-empty
-        # - block_rate: blocked / total
-        # - leak_rate: leaked / total
-        # - all_secrets_leaked: flat list of all leaked secrets
-
+        total = len(results)
+        blocked = sum(1 for result in results if result.blocked)
+        leaked = sum(1 for result in results if result.leaked_secrets)
+        all_secrets_leaked = [
+            secret for result in results for secret in result.leaked_secrets
+        ]
         return {
-            "total": 0,
-            "blocked": 0,
-            "leaked": 0,
-            "block_rate": 0.0,
-            "leak_rate": 0.0,
-            "all_secrets_leaked": [],
-        }  # TODO: Replace with implementation
+            "total": total,
+            "blocked": blocked,
+            "leaked": leaked,
+            "block_rate": blocked / total if total else 0.0,
+            "leak_rate": leaked / total if total else 0.0,
+            "all_secrets_leaked": all_secrets_leaked,
+        }
 
     def print_report(self, results: list):
         """Print a formatted security test report.
