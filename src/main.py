@@ -208,8 +208,6 @@ async def main(parts=None):
             print(f"Unknown part: {part}")
 
     print("\n" + "=" * 60)
-    print("Lab 11 complete! Check your results above.")
-    print("=" * 60)
 
 
 if __name__ == "__main__":

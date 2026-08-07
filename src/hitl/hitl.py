@@ -84,13 +84,43 @@ class ConfidenceRouter:
         #      action="escalate", priority="high",
         #      requires_human=True, reason="Low confidence — escalating"
 
+        normalized_action = (action_type or "general").strip().lower()
+        bounded_confidence = max(0.0, min(1.0, confidence))
+
+        if normalized_action in HIGH_RISK_ACTIONS:
+            return RoutingDecision(
+                action="escalate",
+                confidence=bounded_confidence,
+                reason=f"High-risk action: {normalized_action}",
+                priority="high",
+                requires_human=True,
+            )
+
+        if bounded_confidence >= self.HIGH_THRESHOLD:
+            return RoutingDecision(
+                action="auto_send",
+                confidence=bounded_confidence,
+                reason="High confidence",
+                priority="low",
+                requires_human=False,
+            )
+
+        if bounded_confidence >= self.MEDIUM_THRESHOLD:
+            return RoutingDecision(
+                action="queue_review",
+                confidence=bounded_confidence,
+                reason="Medium confidence - needs review",
+                priority="normal",
+                requires_human=True,
+            )
+
         return RoutingDecision(
-            action="auto_send",
-            confidence=confidence,
-            reason="TODO: implement routing logic",
-            priority="low",
-            requires_human=False,
-        )  # TODO: Replace with implementation
+            action="escalate",
+            confidence=bounded_confidence,
+            reason="Low confidence - escalating",
+            priority="high",
+            requires_human=True,
+        )
 
 
 # ============================================================
@@ -111,33 +141,33 @@ class ConfidenceRouter:
 hitl_decision_points = [
     {
         "id": 1,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
-        "approval_path": "TODO: Explain approve, reject and timeout behavior",
-        "audit_fields": "TODO: List correlation ID, intent, diff and reviewer decision",
+        "name": "High-value transfer approval",
+        "trigger": "Any transfer_money action above the daily low-risk limit, to a new beneficiary, or flagged by fraud/rate-limit signals.",
+        "hitl_model": "human-in-the-loop",
+        "context_needed": "Reviewer sees correlation ID, authenticated user, account status, amount, currency, source account, beneficiary, risk signals, model rationale and exact proposed transfer payload.",
+        "example": "Customer asks to transfer 50,000,000 VND to a newly added beneficiary after several failed OTP attempts.",
+        "approval_path": "Approve sends the action to the egress gateway with reviewer_id and approval_id; reject returns a safe refusal; timeout fails closed and no transfer is sent.",
+        "audit_fields": "request_id, correlation_id, user_id, intent=transfer_money, action_type, before_after_balance_diff, beneficiary_diff, risk_score, reviewer_id, decision, decision_at, timeout_at, approval_id",
     },
     {
         "id": 2,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
-        "approval_path": "TODO: Explain approve, reject and timeout behavior",
-        "audit_fields": "TODO: List correlation ID, intent, diff and reviewer decision",
+        "name": "Sensitive profile change",
+        "trigger": "Any change_password or update_personal_info action, especially phone, email, address, KYC fields or device binding changes.",
+        "hitl_model": "human-in-the-loop",
+        "context_needed": "Reviewer sees verified identity evidence, OTP/MFA status, old vs new values, recent login/device history, customer message and the exact diff the agent proposes.",
+        "example": "Customer requests changing the registered phone number and password in the same session from a new device.",
+        "approval_path": "Approve applies only the reviewed diff; reject keeps current profile and asks for branch or stronger verification; timeout fails closed and records no state change.",
+        "audit_fields": "request_id, correlation_id, user_id, intent=update_personal_info, field_diff, mfa_status, device_id, ip_region, reviewer_id, decision, reason_code, decision_at",
     },
     {
         "id": 3,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
-        "approval_path": "TODO: Explain approve, reject and timeout behavior",
-        "audit_fields": "TODO: List correlation ID, intent, diff and reviewer decision",
+        "name": "Unsafe output or egress tiebreaker",
+        "trigger": "Output guardrail, egress policy or LLM judge flags possible PII/secret leak, hallucinated financial advice, or conflicting safe/unsafe classifications.",
+        "hitl_model": "human-as-tiebreaker",
+        "context_needed": "Reviewer sees original user request, retrieved source snippets with provenance, draft answer before/after redaction, detected PII/secret patterns, judge verdict and proposed destination if egress is involved.",
+        "example": "Agent drafts a response containing a customer phone number and an unsupported savings rate while summarizing an external email.",
+        "approval_path": "Approve only a redacted/corrected answer; reject blocks the response and opens an incident; timeout returns a generic safe message and preserves all evidence for replay.",
+        "audit_fields": "request_id, correlation_id, user_id, source_ids, output_diff, detected_entities, judge_verdict, egress_destination, reviewer_id, decision, incident_id, decision_at",
     },
 ]
 
