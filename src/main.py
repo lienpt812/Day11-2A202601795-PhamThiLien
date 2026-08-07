@@ -31,7 +31,13 @@ async def part1_attacks():
 
     # --- Unsafe (required for hạng mục B) ---
     unsafe_agent, unsafe_runner = create_unsafe_agent()
-    await test_agent(unsafe_agent, unsafe_runner)
+    try:
+        await test_agent(unsafe_agent, unsafe_runner)
+    except Exception as e:
+        print(
+            "Unsafe sanity check failed; continuing to attack run. "
+            f"Detail: {type(e).__name__}: {e}"
+        )
 
     print("\n--- Attacks on UNSAFE agent (hạng mục B) ---")
     unsafe_results = await run_attacks(

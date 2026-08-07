@@ -21,9 +21,13 @@ ALLOWED_TOPICS = [
     "banking", "account", "transaction", "transfer",
     "loan", "interest", "savings", "credit",
     "deposit", "withdrawal", "balance", "payment",
+    "security", "privacy", "authentication", "verification",
+    "otp", "mfa", "2fa", "two-factor",
     "tai khoan", "giao dich", "tiet kiem", "lai suat",
     "chuyen tien", "the tin dung", "so du", "vay",
-    "ngan hang", "atm",
+    "ngan hang", "atm", "bao mat", "xac thuc", "xác thực",
+    "bảo mật", "quyen rieng tu", "quyền riêng tư", "mat khau",
+    "mật khẩu", "ma otp", "mã otp", "2 lop", "2 lớp",
 ]
 
 # Blocked topics (immediate reject)
