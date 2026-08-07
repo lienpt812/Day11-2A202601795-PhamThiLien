@@ -13,6 +13,9 @@ import sys
 import asyncio
 import argparse
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from core.config import setup_api_key
 
 
