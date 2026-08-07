@@ -5,12 +5,29 @@ Lab 11 — Part 2A: Input Guardrails
   TODO 3: Input Guardrail Plugin (ADK)
 """
 import re
+import sys
+import unicodedata
+from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from google.genai import types
 from google.adk.plugins import base_plugin
 from google.adk.agents.invocation_context import InvocationContext
 
 from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
+
+
+def _canonicalize_text(text: str) -> str:
+    """Normalize text so obfuscated injection phrases are detectable."""
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = "".join(
+        " " if unicodedata.category(ch) in {"Cf", "Cc"} else ch
+        for ch in normalized
+    )
+    normalized = re.sub(r"[\s_*\-\.]+", " ", normalized)
+    return normalized.strip().lower()
 
 
 # ============================================================
@@ -41,15 +58,35 @@ def detect_injection(user_input: str) -> bool:
     Returns:
         True if injection detected, False otherwise
     """
+    normalized = _canonicalize_text(user_input)
+    compact = re.sub(r"\s+", "", normalized)
+
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"\bignore\s+(?:all\s+)?(?:previous|above|prior|earlier)\s+instructions?\b",
+        r"\byou\s+are\s+now\b",
+        r"\bsystem\s+prompt\b",
+        r"\breveal\s+(?:your\s+)?(?:instructions?|prompt|system\s+prompt)\b",
+        r"\bpretend\s+you\s+are\b",
+        r"\bact\s+as\s+(?:a\s+|an\s+)?unrestricted\b",
+        r"\b(?:show|print|dump|output|translate|reformat)\s+(?:your\s+)?(?:system\s+prompt|instructions?|internal\s+notes?|config)\b",
+        r"\b(?:admin\s+password|api\s+key|database\s+host|db\s+host|internal\s+password)\b",
+        r"\b(?:developer|system)\s+message\b",
     ]
 
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, normalized, re.IGNORECASE):
             return True
+    if any(
+        phrase in compact
+        for phrase in (
+            "ignoreallpreviousinstructions",
+            "ignorepreviousinstructions",
+            "revealtheinternalpassword",
+            "revealyourprompt",
+            "systemprompt",
+        )
+    ):
+        return True
     return False
 
 
@@ -72,14 +109,18 @@ def topic_filter(user_input: str) -> bool:
     Returns:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
-    input_lower = user_input.lower()
+    input_lower = _canonicalize_text(user_input)
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
+    if not input_lower:
+        return True
 
-    pass  # Replace with your implementation
+    if any(re.search(rf"\b{re.escape(topic.lower())}\b", input_lower) for topic in BLOCKED_TOPICS):
+        return True
+
+    if any(topic.lower() in input_lower for topic in ALLOWED_TOPICS):
+        return False
+
+    return True
 
 
 # ============================================================
@@ -132,14 +173,19 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 3. If both are False: return None (let message through)
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I cannot process requests that try to override instructions or expose internal details."
+            )
 
-        pass  # Replace with your implementation
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "I am a VinBank assistant and can only help with banking-related questions."
+            )
+
+        return None
 
 
 # ============================================================
